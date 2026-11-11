@@ -19,7 +19,7 @@ It runs on Windows with Python 3 (`py`/`pyw` launcher) and needs no extra packag
 | 5 | PC | Click **MAP → MPC**. It writes `<name> HAPAX.xpj` next to the original and leaves the original untouched |
 | 6 | PC | Put the Hapax SD card in a reader and click **Copy to SD card**. Files go to `<card>\HAPAX\` |
 | 7 | MPC | Exit Controller Mode and load `<name> HAPAX` |
-| 8 | Hapax | Load each track's instrument definition (`<name> <track>`) |
+| 8 | Hapax | Load each track's instrument definition: `<project> CHnn <instrument>`, e.g. `Summer Jam CH01 Jura` |
 
 Parameter choices are saved per plugin. The next project that uses the same plugin starts with your picks.
 

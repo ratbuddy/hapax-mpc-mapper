@@ -17,7 +17,7 @@ map  : writes <name>.xpj (+ a copy of its _[ProjectData] folder) next to the sou
        Also writes Hapax definitions for the project (Projects\\<name>\\ and SD-Card\\HAPAX\\).
 Formats used were each checked against projects saved by an MPC Live III on MPC 3.10.
 """
-import argparse, copy, gzip, json, os, shutil, sys, zlib
+import argparse, copy, gzip, json, os, re, shutil, sys, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths
 import hapax_integration as hi
@@ -174,11 +174,20 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
     defs = write_hapax_defs(name, hapax, src_pd, log) if write_defs else []
     return {'dst': dst, 'ok': ok, 'entries': len(new), 'kept': len(kept), 'dropped': dropped, 'defs': defs, 'name': name}
 
+PREFIX_MAX = 24
+
+def def_prefix(name):
+    """File-name prefix for a project's Hapax files: the project name without the app's ' HAPAX' suffix, so
+    'Summer Jam 1 HAPAX' -> 'Summer Jam 1' (files 'Summer Jam 1 CH01 Jura.txt'). Long enough that similar
+    names don't collide on the card."""
+    base = re.sub(r'\s+HAPAX$', '', name.strip(), flags=re.I) or name
+    return mh.hx(base, PREFIX_MAX)
+
 def write_hapax_defs(name, hapax, project_data, log=print):
     out_root = os.path.join(paths.data_dir(), 'Projects', mh.hx(name, 60))
     sd = os.path.join(paths.data_dir(), 'SD-Card', 'HAPAX')
     os.makedirs(out_root, exist_ok=True); os.makedirs(sd, exist_ok=True)
-    prefix = mh.hx(name, 10)
+    prefix = def_prefix(name)
     wavs = {}
     if os.path.isdir(project_data):
         for dp, _, fns in os.walk(project_data):
@@ -220,7 +229,10 @@ def write_hapax_defs(name, hapax, project_data, log=print):
             sheet.append(f'| {ch} | {n} {t["name"]} ({plug or "keygroup"}) | {", ".join(x["label"] for x in pots) or "Volume, Pan"} | '
                          f'{others or "-"} | {"yes" if learned else ("NO - learn by hand" if rows else "vol/pan")} |')
         errs = mh.validate(path)
-        shutil.copyfile(path, os.path.join(sd, fname + '.txt'))
+        staged = os.path.join(sd, fname + '.txt')
+        if os.path.exists(staged) and f'Project {name} - ' not in open(staged, encoding='utf-8', errors='replace').read():
+            log(f'  NOTE replaced {fname}.txt in SD-Card\\HAPAX - it came from another project with the same file prefix')
+        shutil.copyfile(path, staged)
         written.append((path, errs))
     open(os.path.join(out_root, 'MAP.md'), 'w', encoding='utf-8').write('\n'.join(sheet) + '\n')
     bad = [p for p, e in written if e]

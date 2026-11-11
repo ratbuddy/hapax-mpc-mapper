@@ -235,7 +235,7 @@ class App(tk.Tk):
                     m(); continue
                 tag = ('err' if m.startswith(('ERROR', 'NOT WRITTEN')) else
                        'ok' if m.startswith(('DONE', 'Copied', 'Saved')) else
-                       'warn' if ('NOT pre-learned' in m or 'by hand' in m) else None)
+                       'warn' if ('NOT pre-learned' in m or 'by hand' in m or 'NOTE ' in m) else None)
                 self.logbox.insert('end', m + '\n', tag); self.logbox.see('end')
         except queue.Empty:
             pass
