@@ -96,3 +96,10 @@ Generated files never go into this repo. The data folder is resolved in this ord
 | Drum track + plugin playing the same note numbers on different channels | low risk: the forum's long-standing MPC note-off bug is reported fixed in MPC 3.6 (this setup runs 3.10). If notes still drop, move the kit's pads low or set key ranges |
 
 `HAPAX MIDI 1` input-port settings on the MPC: **Track** and **Control** on, **Global** off. "Enable Mapping" (MIDI Learn) is an MPC setting, not saved in projects.
+
+## Not done (by choice)
+
+| Item | State | What it would take |
+|------|-------|--------------------|
+| Drum and keygroup pots beyond Vol/Pan | Not built. Those parameters are adjusted on the MPC directly | Kit-wide pots, one learn entry targeting all pads, like the kit's own Q-Link macros. Known per-pad parameter IDs (instrumentIndex = pad): Filter Cutoff 514, Pan 517, Level 518, Decay 520, Send 1 522, Send 2 523. Missing: Tuning, Filter Reso, Filter Env, Attack, Release. First check that loading a different kit doesn't rename the track and break its name-based learns |
+| Knob page B (8 more knobs via a second Hapax track on the same channel) | Built and tested, then shelved: it costs a Hapax track per plugin | `git stash list`, "knob page B" |
