@@ -65,7 +65,7 @@ Default parameter order is the plugin's own Q-Link pages. For known plugins, the
 | `hapax_integration.py` | parameter selection, CC assignment, plugin state decoding |
 | `mpc_hapax.py` | builds the full Hapax definition library from the MPC's drum kits and instruments |
 | `mpc_template.py` | older fixed 16-track template builder (superseded by `mpc_map.py`) |
-| `mpc_quarantine.py` | move/undo duplicate MPC files: `py -I mpc_quarantine.py undo <manifest.csv>` |
+| `mpc_quarantine.py` | move/undo duplicate MPC files: `py -I mpc_quarantine.py undo <manifest.csv> [X:]`. Undo finds the MPC drive by volume name if its letter changed |
 | `paths.py` | finds the MPC drives by volume name and the data folder |
 | `resources/` | format samples taken from MPC-saved projects (Hapax input port, one MIDI Learn entry) |
 
