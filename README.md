@@ -92,3 +92,7 @@ Generated files never go into this repo. The data folder is resolved in this ord
 | Input port `HAPAX MIDI 1` + Merge; port survives a replug | ✓ |
 | CC 10 → pan | not yet tested |
 | Full 16-track mapped project loading all entries (~320) | not yet tested (104 tested) |
+| Plugin pots while a *different* track is focused on the MPC | not yet tested (forum: plugin-target learns work out of focus, Q-Link learns don't; these are plugin-target learns) |
+| Drum track + plugin playing the same note numbers on different channels | not yet tested (forum reports MPC 2.x cutting such notes off; fix: move kit pads low or set key ranges) |
+
+`HAPAX MIDI 1` input-port settings on the MPC: **Track** and **Control** on, **Global** off. "Enable Mapping" (MIDI Learn) is an MPC setting, not saved in projects.
