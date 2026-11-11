@@ -1,0 +1,46 @@
+{
+  "source": "HAPAX PROBE (Jura VCF Cutoff learned by hand on MPC 3.10)",
+  "entry": {
+    "control": {
+      "name": "Plugin 001 (VCF Cutoff)",
+      "controlType": 0,
+      "targetData": [
+        {
+          "version": 2,
+          "parameter": 4115,
+          "track": "Plugin 001",
+          "insertParamIndex": {
+            "initialized": true,
+            "none": true
+          },
+          "instrumentIndex": 256,
+          "paramType": 0,
+          "controlInputRange": {
+            "min": 0.0,
+            "max": 1.0,
+            "stride": 0.0,
+            "deadspot": 2.0,
+            "skew": 1.0
+          },
+          "parameterRange": {
+            "min": 0.0,
+            "max": 1.0,
+            "stride": 0.0,
+            "deadspot": 2.0,
+            "skew": 1.0
+          },
+          "behaviour": 0
+        }
+      ],
+      "momentary": 0,
+      "controlValue": 0.3840000033378601
+    },
+    "mapping": {
+      "mappingType": 2,
+      "controlType": 5,
+      "channel": 1,
+      "data1": 20,
+      "reverseInput": false
+    }
+  }
+}

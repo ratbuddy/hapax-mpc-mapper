@@ -1,0 +1,9 @@
+{
+  "source": "HAPAX PROBE 3 (Mini D input port, saved by MPC 3.10)",
+  "inputPort": {
+    "type": 0,
+    "deviceName": "HAPAX MIDI 1",
+    "deviceId": "24-0",
+    "os": "Linux"
+  }
+}

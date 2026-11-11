@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+settings.json
+plugin_maps.json
+*.xpj
+*.xtd
+*.xty
+*.xpm
+*_[[]ProjectData]/
+SD-Card/
+Projects/
+Reports/
