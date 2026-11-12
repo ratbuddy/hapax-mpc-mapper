@@ -22,6 +22,7 @@ ACCENT, ACCENT_DK, AMBER, GREEN, RED = '#ff7a1a', '#3a2412', '#e8b04a', '#6fcf8e
 STRIPE, SEL, POT_BG, POT_FG = '#222227', '#6a3a14', '#2a1f16', '#ffd2b0'
 THUMB, THUMB_HI = '#3d3d45', '#55555f'
 POT_VALUES = ['—'] + [str(i) for i in range(1, 9)]
+PORT_VALUES = [str(i) for i in range(1, 17)] + ['All']         # HAPAX MIDI 1-16 or the MPC's All Ports
 
 def _dpi_aware():
     try:
@@ -46,7 +47,7 @@ class App(tk.Tk):
         self.geometry(f'{self.px(1340)}x{self.px(860)}')
         self.minsize(self.px(1100), self.px(700))
         self.configure(bg=BG)
-        self.analysis, self.selections, self.overrides = None, {}, {}
+        self.analysis, self.selections, self.overrides, self.ports = None, {}, {}, {}
         self.cur_plugin, self.last_defs, self._ch_job = None, [], None
         self.mpc, self.sd = {}, []
         self.q = queue.Queue()
@@ -153,23 +154,28 @@ class App(tk.Tk):
         self.track_info = ttk.Label(left, text='Open a project saved on the MPC', style='Head.TLabel')
         self.track_info.pack(anchor='w', pady=(P(2), P(10)))
         tf = ttk.Frame(left, style='Panel.TFrame'); tf.pack(fill='both', expand=True)
-        cols = ('n', 'ch', 'track', 'plugin', 'status')
+        cols = ('n', 'port', 'ch', 'track', 'plugin', 'status')
         self.tracks = ttk.Treeview(tf, columns=cols, show='headings', selectmode='browse')
-        for c, w, t, a in (('n', 34, '#', 'center'), ('ch', 40, 'CH', 'center'), ('track', 150, 'MPC TRACK', 'w'),
-                           ('plugin', 105, 'INSTRUMENT', 'w'), ('status', 160, 'HAPAX', 'w')):
+        for c, w, t, a in (('n', 34, '#', 'center'), ('port', 44, 'PORT', 'center'), ('ch', 40, 'CH', 'center'),
+                           ('track', 150, 'MPC TRACK', 'w'), ('plugin', 105, 'INSTRUMENT', 'w'), ('status', 160, 'HAPAX', 'w')):
             self.tracks.heading(c, text=t, anchor=a)
             self.tracks.column(c, width=P(w), minwidth=P(30), anchor=a, stretch=(c == 'track'))
         self.tracks.tag_configure('odd', background=STRIPE)
         self.tracks.tag_configure('hand', foreground=AMBER)
+        self.tracks.tag_configure('clash', foreground=RED)
         sb = ttk.Scrollbar(tf, orient='vertical', command=self.tracks.yview); self.tracks.configure(yscrollcommand=sb.set)
         self.tracks.pack(side='left', fill='both', expand=True); sb.pack(side='right', fill='y')
         self.tracks.bind('<<TreeviewSelect>>', self.on_track)
         chrow = ttk.Frame(left, style='Panel.TFrame'); chrow.pack(fill='x', pady=(P(12), 0))
+        ttk.Label(chrow, text='PORT', style='Section.TLabel').pack(side='left')
+        self.port = tk.StringVar()
+        pc = ttk.Combobox(chrow, values=PORT_VALUES, width=4, textvariable=self.port, state='readonly', font=self.f_mono)
+        pc.pack(side='left', padx=(P(8), P(16))); pc.bind('<<ComboboxSelected>>', lambda e: self.set_port())
         ttk.Label(chrow, text='MIDI CH', style='Section.TLabel').pack(side='left')
         self.ch = tk.StringVar()
         sp = ttk.Spinbox(chrow, from_=1, to=16, width=3, textvariable=self.ch, font=self.f_mono, command=self._ch_later)
         sp.pack(side='left', padx=P(8)); sp.bind('<Return>', lambda e: self.set_channel())
-        ttk.Label(chrow, text='drums → 10, others fill 1–16', style='Muted.TLabel').pack(side='left')
+        ttk.Label(chrow, text='default: port 1 · drums ch 10, others fill 1–16', style='Muted.TLabel').pack(side='left')
 
         # --- parameters ---
         top = ttk.Frame(right, style='Panel.TFrame'); top.pack(fill='x')
@@ -264,6 +270,7 @@ class App(tk.Tk):
         start = paths.mpc_projects_dir() or os.path.join(paths.data_dir(), 'Reports')
         p = filedialog.askopenfilename(initialdir=start, filetypes=[('MPC project', '*.xpj')])
         if p:
+            self.overrides.clear(); self.ports.clear()          # port/channel picks belong to the previous project
             self.path.set(os.path.normpath(p)); self.outname.set(''); self.load()
 
     def load(self):
@@ -271,7 +278,7 @@ class App(tk.Tk):
         if not os.path.isfile(p):
             messagebox.showerror('Hapax Mapper', f'Not a file:\n{p}'); return
         try:
-            self.analysis = mm.analyze(p, self.overrides)
+            self.analysis = mm.analyze(p, self.overrides, ports=self.ports)
         except Exception as e:
             messagebox.showerror('Hapax Mapper', f'Could not read the project:\n{e}'); return
         for t in self.analysis['tracks']:
@@ -285,6 +292,8 @@ class App(tk.Tk):
         self.log(f'Opened {p}')
 
     def track_status(self, t):
+        if t.get('clash'):
+            return f'⚠ CH {t["channel"]} shared'
         if not t['plugin']:
             return 'vol · pan'
         n = len(self.selections.get(t['plugin'], []))
@@ -294,9 +303,11 @@ class App(tk.Tk):
         sel = self.tracks.selection()
         self.tracks.delete(*self.tracks.get_children())
         for k, t in enumerate(self.analysis['tracks']):
-            tags = (('odd',) if k % 2 else ()) + (('hand',) if t['plugin'] and not t['trusted'] else ())
+            tags = (('odd',) if k % 2 else ()) + \
+                   (('clash',) if t.get('clash') else ('hand',) if t['plugin'] and not t['trusted'] else ())
             self.tracks.insert('', 'end', iid=str(t['n']), tags=tags,
-                               values=(t['n'], t['channel'] or '—', t['track'], t['plugin'] or t['type'], self.track_status(t)))
+                               values=(t['n'], mm.port_label(t['port']) if t['channel'] else '—', t['channel'] or '—',
+                                       t['track'], t['plugin'] or t['type'], self.track_status(t)))
         if sel and self.tracks.exists(sel[0]):
             self.tracks.selection_set(sel[0])
 
@@ -309,19 +320,31 @@ class App(tk.Tk):
         if not t:
             return
         self.ch.set(str(t['channel'] or ''))
+        self.port.set(mm.port_label(t['port']))
         self.cur_plugin = t['plugin']
+        where = f'PORT {mm.port_label(t["port"])}   ·   CH {t["channel"]}'
         if not t['plugin']:
-            self.phead.configure(text=f'{t["track"]}   ·   CH {t["channel"]}')
-            self.pnote.configure(text='Drum / keygroup track: Hapax pots 1–2 = Track Vol / Track Pan.', style='Muted.TLabel')
+            self.phead.configure(text=f'{t["track"]}   ·   {where}')
+            self.show_note(t, 'Drum / keygroup track: Hapax pots 1–2 = Track Vol / Track Pan.')
             self.params.delete(*self.params.get_children()); self.count.configure(text=''); return
-        self.phead.configure(text=f'{t["plugin"]}   ·   CH {t["channel"]}   ·   track {t["n"]}')
+        self.phead.configure(text=f'{t["plugin"]}   ·   {where}   ·   track {t["n"]}')
         if t['trusted']:
-            self.pnote.configure(text=f'Up to {hi.MAX_PARAMS} parameters. Pots 1–8 send CC 20–27, the rest get spare CCs '
-                                      'for automation lanes. Double-click or Space turns a row on/off.', style='Muted.TLabel')
+            self.show_note(t, f'Up to {hi.MAX_PARAMS} parameters. Pots 1–8 send CC 20–27, the rest get spare CCs '
+                              'for automation lanes. Double-click or Space turns a row on/off.')
         else:
-            self.pnote.configure(text='This plugin\'s saved settings can\'t be read reliably, so nothing is pre-learned: '
-                                      'the names still go to the Hapax, and you MIDI-learn them once on the MPC.', style='Warn.TLabel')
+            self.show_note(t, 'This plugin\'s saved settings can\'t be read reliably, so nothing is pre-learned: '
+                              'the names still go to the Hapax, and you MIDI-learn them once on the MPC.', warn=True)
         self.fill_params()
+
+    def show_note(self, t, text, warn=False):
+        """The line under the track heading; port and channel warnings go first."""
+        extra = []
+        if t.get('clash'):
+            extra.append('⚠ ' + t['clash'] + '. Give it its own channel.')
+        if t['channel'] and not t.get('port_verified', True):
+            extra.append(f'HAPAX MIDI {t["port"]} isn\'t tested on the MPC yet. If this track ignores the Hapax, '
+                         're-pick the port in its Track Settings on the MPC.')
+        self.pnote.configure(text='\n'.join(extra + [text]), style='Warn.TLabel' if (extra or warn) else 'Muted.TLabel')
 
     # ---------- parameters ----------
     def rows(self):
@@ -430,9 +453,21 @@ class App(tk.Tk):
         if c == t['channel']:
             return
         self.overrides[t['n']] = c
-        keep = str(t['n'])
-        self.analysis = mm.analyze(self.analysis['path'], self.overrides)
-        self.fill_tracks(); self.tracks.selection_set(keep)
+        self.reanalyze(t['n'])
+
+    def set_port(self):
+        t = self.cur_track()
+        if not t:
+            return
+        p = mm.parse_port(self.port.get())
+        if p == t['port']:
+            return
+        self.ports[t['n']] = p
+        self.reanalyze(t['n'])
+
+    def reanalyze(self, keep):
+        self.analysis = mm.analyze(self.analysis['path'], self.overrides, ports=self.ports)
+        self.fill_tracks(); self.tracks.selection_set(str(keep)); self.on_track()
 
     # ---------- actions ----------
     def save_choices(self, quiet=False):
@@ -458,7 +493,8 @@ class App(tk.Tk):
 
         def work():
             try:
-                res = mm.map_project(self.analysis['path'], name, self.overrides, selections=sels, log=self.log)
+                res = mm.map_project(self.analysis['path'], name, self.overrides, selections=sels, log=self.log,
+                                     ports=dict(self.ports))
                 self.last_defs = res['defs']
                 self.log(f'DONE  load "{res["name"]}" on the MPC  ·  {len(res["defs"])} Hapax files ready → Copy to SD card')
             except FileExistsError as e:

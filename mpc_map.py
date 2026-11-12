@@ -3,12 +3,14 @@ mpc_map.py - map ANY MPC 3 project to the Hapax (engine for the Hapax Mapper app
 
   py -I mpc_map.py list "<MPC User drive>\\MPC Documents\\Projects\\My Song.xpj"
   py -I mpc_map.py map  "<MPC User drive>\\MPC Documents\\Projects\\My Song.xpj" [--name "My Song HAPAX"]
-                        [--channels "Plugin 003=5,Kit-Foo=10"] [--drum-channel 10] [--no-defs]
+                        [--channels "Plugin 003=5,Kit-Foo=10"] [--ports "Plugin 003=2,Kit-Foo=all"]
+                        [--drum-channel 10] [--no-defs]
 
 list : instrument tracks found and the channel each would get. Writes nothing.
 map  : writes <name>.xpj (+ a copy of its _[ProjectData] folder) next to the source. Never edits the source,
        never overwrites. Every mapped track gets:
-         - Track Settings: INPUT PORT = the Hapax, INPUT CHANNEL = its channel, MIDI MONITOR = Merge
+         - Track Settings: INPUT PORT = HAPAX MIDI 1 (or the --ports choice: 1-16 / all), INPUT CHANNEL = its
+           channel, MIDI MONITOR = Merge
          - CC 7 = track Volume, CC 10 = Pan
          - plugin tracks: 32 parameters (your saved choices in the data folder, else the plugin's own Q-Link page order),
            pots 1-8 on CC 20-27, the other 24 on spare CCs. Pre-learned only where the plugin's saved state
@@ -52,14 +54,73 @@ def track_params(t):
 def track_label(t):
     return plugin_name(t) or mh.short_name(t.get('program', {}).get('name') or t.get('name', 'Track'))
 
-def plan_channels(tracks, overrides=None, drum_channel=10):
-    """overrides: {track number (int) or name (str): channel}."""
-    overrides = overrides or {}
+ALL_PORTS = 0                                          # port choice: 0 = the MPC's "All Ports", 1-16 = HAPAX MIDI n
+
+def parse_port(v):
+    s = str(v).strip().lower()
+    if s in ('all', 'all ports', '0'):
+        return ALL_PORTS
+    p = int(s)
+    if not 1 <= p <= 16:
+        raise ValueError(f'port must be 1-16 or All, not {v!r}')
+    return p
+
+def port_label(p):
+    return 'All' if p == ALL_PORTS else str(p)
+
+def input_port(p):
+    """(the INPUT PORT entry the MPC saves for port choice p, whether that exact entry was seen in an MPC-saved
+    project). Port 1 and All Ports are copies from HAPAX PROBE 3. Ports 2-16 are derived from port 1 (same
+    device, port index n-1: '24-0' -> '24-1' ...) and not yet checked on the MPC."""
+    if p == ALL_PORTS:
+        return json.load(open(os.path.join(paths.RESOURCES, 'all_ports.json')))['inputPort'], True
+    base = json.load(open(os.path.join(paths.RESOURCES, 'hapax_port.json')))['inputPort']
+    if p == 1:
+        return dict(base), True
+    client = base['deviceId'].split('-')[0]
+    return dict(base, deviceName=f'HAPAX MIDI {p}', deviceId=f'{client}-{p - 1}'), False
+
+def hapax_outport(p):
+    """Hapax OUTPORT for port choice p. Plain USBD arrives on the MPC as HAPAX MIDI 1 (seen in its MIDI Monitor);
+    USBDn is virtual cable n (Squarp template). An All Ports track still needs one: cable 1."""
+    return 'USBD' if p in (ALL_PORTS, 1) else f'USBD{p}'
+
+def channel_clashes(chan, port):
+    """{track n: warning} for mapped tracks that share a channel. MIDI Learn entries hold only channel + CC (no port,
+    checked in MPC-saved projects), so a shared channel always shares the pots and Vol/Pan. On the same port, or
+    with All Ports on either side, the notes are shared too."""
+    by_ch, out = {}, {}
+    for n, c in chan.items():
+        by_ch.setdefault(c, []).append(n)
+    for c, ns in by_ch.items():
+        for n in ns:
+            others = [k for k in ns if k != n]
+            if not others:
+                continue
+            same = [k for k in others if port[k] == port[n] or ALL_PORTS in (port[k], port[n])]
+            who = ', '.join(f'#{k}' for k in (same or others))
+            out[n] = (f'CH {c} on the same port as {who}: notes and pots are shared' if same else
+                      f'CH {c} also used by {who}: pots and Vol/Pan are shared (MIDI Learn ignores the port)')
+    return out
+
+def _match(key, n, t):
+    return str(key) == str(n) or str(key).lower() == t['name'].lower()
+
+def plan_channels(tracks, overrides=None, drum_channel=10, ports=None):
+    """overrides: {track number (int) or name (str): channel}; ports: {same keys: 1-16 or 'All'} (default 1).
+    Returns (instrument tracks, {n: channel}, {n: port}). Automatic channels stay unique across all ports,
+    because MIDI Learn can't tell ports apart."""
+    overrides, ports = overrides or {}, ports or {}
     inst = [(n, t) for n, t in enumerate(tracks, 1) if t.get('program', {}).get('type') in INSTRUMENT_TYPES]
+    port = {n: 1 for n, _ in inst}
+    for key, p in ports.items():
+        for n, t in inst:
+            if _match(key, n, t):
+                port[n] = parse_port(p)
     chan = {}
     for key, ch in overrides.items():
         for n, t in inst:
-            if str(key) == str(n) or str(key).lower() == t['name'].lower():
+            if _match(key, n, t):
                 chan[n] = int(ch)
     used = set(chan.values())
     first_drum = next((n for n, t in inst if t['program']['type'] == 0 and n not in chan), None)
@@ -71,18 +132,20 @@ def plan_channels(tracks, overrides=None, drum_channel=10):
             if free is None:
                 break
             chan[n] = free; used.add(free)
-    return inst, chan
+    return inst, chan, port
 
-def analyze(path, overrides=None, drum_channel=10, maps=None):
-    """Everything the app shows: tracks, channels, and for plugins the parameter list + current selection."""
+def analyze(path, overrides=None, drum_channel=10, maps=None, ports=None):
+    """Everything the app shows: tracks, ports, channels, clashes, and for plugins the parameter list + selection."""
     hdr, j = load(path)
     maps = hi.load_maps() if maps is None else maps
-    inst, chan = plan_channels(j['data']['tracks'], overrides, drum_channel)
+    inst, chan, port = plan_channels(j['data']['tracks'], overrides, drum_channel, ports)
+    clash = channel_clashes(chan, port)
     rows = []
     for n, t in inst:
         plug = plugin_name(t)
         info = {'n': n, 'track': t['name'], 'type': TYPE_NAMES.get(t['program']['type']), 'plugin': plug,
-                'channel': chan.get(n), 'params': [], 'selection': [], 'trusted': False, 'kind': None}
+                'channel': chan.get(n), 'port': port[n], 'port_verified': input_port(port[n])[1],
+                'clash': clash.get(n), 'params': [], 'selection': [], 'trusted': False, 'kind': None}
         if plug:
             kind = hi.PLUGIN_KINDS.get(plug, 'synth')
             ordered = hi.qlink_ordered_params(t)
@@ -93,8 +156,10 @@ def analyze(path, overrides=None, drum_channel=10, maps=None):
         rows.append(info)
     return {'path': path, 'tracks': rows}
 
-def map_project(path, name=None, overrides=None, drum_channel=10, selections=None, write_defs=True, log=print):
-    """selections: {plugin name: rows} from the app (else saved/default choices). Returns a summary dict."""
+def map_project(path, name=None, overrides=None, drum_channel=10, selections=None, write_defs=True, log=print,
+                ports=None):
+    """selections: {plugin name: rows} from the app (else saved/default choices); ports: see plan_channels.
+    Returns a summary dict."""
     src = os.path.abspath(path)
     hdr, j = load(src)
     data = j['data']
@@ -104,11 +169,11 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
     dst_pd = os.path.join(os.path.dirname(src), name + '_[ProjectData]')
     if os.path.exists(dst):
         raise FileExistsError(f'{dst} already exists - choose another name')
-    port = json.load(open(os.path.join(paths.RESOURCES, 'hapax_port.json')))['inputPort']
     tmpl = json.load(open(os.path.join(paths.RESOURCES, 'learn_entry_template.json')))['entry']
     maps = hi.load_maps()
     selections = selections or {}
-    inst, chan = plan_channels(data['tracks'], overrides, drum_channel)
+    inst, chan, port = plan_channels(data['tracks'], overrides, drum_channel, ports)
+    clash = channel_clashes(chan, port)
 
     def entry(track_name, ch, cc, parameter, instrument, label, value):
         e = copy.deepcopy(tmpl)
@@ -118,13 +183,17 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
         e['mapping'].update({'channel': ch, 'data1': cc})
         return e
 
-    new, report, hapax = [], [], []
+    new, report, hapax, unverified = [], [], [], set()
     for n, t in inst:
         ch = chan.get(n)
         if ch is None:
             report.append((n, t['name'], None, 'not mapped: no free channel')); continue
+        p = port[n]
+        entry_port, seen = input_port(p)
+        if not seen:
+            unverified.add(p)
         r = t.setdefault('midiInputRoute', {})
-        r['inputPort'] = dict(port); r['inputChannel'] = ch
+        r['inputPort'] = entry_port; r['inputChannel'] = ch
         t.setdefault('midiMonitorable', {})['state'] = MONITOR_MERGE
         typ, plug = t['program']['type'], plugin_name(t)
         rows, learned, note = [], False, []
@@ -148,8 +217,8 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
         for cc, param, key, lbl in MIXER:
             new.append(entry(t['name'], ch, cc, param, MIXER_INSTRUMENT, lbl, mix.get(key, 0.5)))
         note.append('vol/pan')
-        report.append((n, t['name'], ch, ', '.join(note)))
-        hapax.append((n, t, ch, typ, plug, rows, learned))
+        report.append((n, t['name'], ch, f'port {port_label(p)}, ' + ', '.join(note)))
+        hapax.append((n, t, ch, typ, plug, rows, learned, p))
 
     taken_cc = {(e['mapping']['channel'], e['mapping']['data1']) for e in new}
     taken_tg = {(td['track'], td['parameter'], td['instrumentIndex']) for e in new for td in e['control']['targetData']}
@@ -170,6 +239,11 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
     ok = back == json.loads(json.dumps(j))
     for n, nm, ch, note in report:
         log(f'{n:>3} {nm[:28]:28} ch {ch!s:>4}  {note}')
+    for n in sorted(clash):
+        log(f'  NOTE track {n}: {clash[n]}')
+    for p in sorted(unverified):
+        log(f'  NOTE HAPAX MIDI {p}: this port\'s saved format is not checked on the MPC yet. If a track on it ignores '
+            'the Hapax, re-pick the port in that track\'s Track Settings')
     log(f'learn entries: {len(new)} written, {len(kept)} of yours kept, {dropped} replaced/removed')
     log(f'wrote {dst} - verify re-read: {"OK" if ok else "MISMATCH"}')
     defs = write_hapax_defs(name, hapax, src_pd, log) if write_defs else []
@@ -195,16 +269,23 @@ def write_hapax_defs(name, hapax, project_data, log=print):
             for fn in fns:
                 if fn.lower().endswith('.wav'):
                     wavs.setdefault(os.path.splitext(fn)[0].lower(), os.path.join(dp, fn))
-    sheet = [f'# {name} - Hapax map', '', '| Ch | MPC track | Pots 1-8 | Other mapped (CC) | Pre-learned |', '|---|---|---|---|---|']
-    written = []
-    for n, t, ch, typ, plug, rows, learned in hapax:
+    sheet = [f'# {name} - Hapax map', '', '| Port | Ch | MPC track | Pots 1-8 | Other mapped (CC) | Pre-learned |',
+             '|---|---|---|---|---|---|']
+    written, taken = [], set()
+    for n, t, ch, typ, plug, rows, learned, p in hapax:
+        outport = hapax_outport(p)
         label = mh.hx(plug or mh.short_name(t.get('program', {}).get('name') or t['name']), 16) or f'Track {n}'
-        fname = mh.hx(f'{prefix} CH{ch:02d} {label}', 60)
+        tag = '' if p in (ALL_PORTS, 1) else f'P{p} '       # same channel on another port must not overwrite
+        fname = base = mh.hx(f'{prefix} {tag}CH{ch:02d} {label}', 60)
+        k = 2
+        while fname.lower() in taken:                      # e.g. two Jura tracks forced onto one channel
+            fname = mh.hx(f'{base[:56]} {k}', 60); k += 1
+        taken.add(fname.lower())
         path = os.path.join(out_root, fname + '.txt')
         vol_pan = [(7, 'Track Vol'), (10, 'Track Pan')]
         mix = t.get('program', {}).get('mixable', {})
         vol_pan_pots = [(1, 7, mh.cc_value(mix.get('volume'))), (2, 10, mh.cc_value(mix.get('pan')))]
-        header = [f'Project {name} - MPC track {n} ({t["name"]})', f'port USBD ch {ch}']
+        header = [f'Project {name} - MPC track {n} ({t["name"]})', f'port {outport} ch {ch}']
         if typ == 0:
             prog = mh.read_track_data(t)
             if prog.get('kind') != 'drum' or not prog.get('pads'):
@@ -215,10 +296,10 @@ def write_hapax_defs(name, hapax, project_data, log=print):
             for s in lanes:
                 nm = mh.lane_label(s, 16); used[nm] = used.get(nm, 0) + 1
                 lane_names.append((s['note'], nm if used[nm] == 1 else mh.hx(f'{nm[:14]} {used[nm]}', 16)))
-            mh.write_def(path, label, 'DRUM', 'USBD', ch, lane_names,
+            mh.write_def(path, label, 'DRUM', outport, ch, lane_names,
                          [f'Project {name}', f'MPC track {n} {t["name"]}', 'Notes from this project s own pad map',
                           'Pots 1-2 track Volume Pan'], header, ccs=vol_pan, pots=vol_pan_pots)
-            sheet.append(f'| {ch} | {n} {t["name"]} (drums) | Volume, Pan | - | yes |')
+            sheet.append(f'| {port_label(p)} | {ch} | {n} {t["name"]} (drums) | Volume, Pan | - | yes |')
         else:
             pots = sorted((x for x in rows if x.get('pot')), key=lambda x: x['pot'])
             ccs = [(x['cc'], x['label']) for x in sorted(rows, key=lambda x: x['cc'])] + vol_pan
@@ -227,9 +308,9 @@ def write_hapax_defs(name, hapax, project_data, log=print):
                       [f'Pot {x["pot"]} CC{x["cc"]} {x["label"]}' for x in pots] + \
                       [f'{len(rows)} params mapped - pre-learned' if learned else
                        f'{len(rows)} params named - learn them by hand on the MPC' if rows else 'CC 7 Volume CC 10 Pan']
-            mh.write_def(path, label, 'POLY', 'USBD', ch, [], comment, header, ccs=ccs, pots=assign, auto_lanes=bool(rows))
+            mh.write_def(path, label, 'POLY', outport, ch, [], comment, header, ccs=ccs, pots=assign, auto_lanes=bool(rows))
             others = ', '.join(f'{x["label"]} ({x["cc"]})' for x in rows if not x.get('pot'))
-            sheet.append(f'| {ch} | {n} {t["name"]} ({plug or "keygroup"}) | {", ".join(x["label"] for x in pots) or "Volume, Pan"} | '
+            sheet.append(f'| {port_label(p)} | {ch} | {n} {t["name"]} ({plug or "keygroup"}) | {", ".join(x["label"] for x in pots) or "Volume, Pan"} | '
                          f'{others or "-"} | {"yes" if learned else ("NO - learn by hand" if rows else "vol/pan")} |')
         errs = mh.validate(path)
         staged = os.path.join(sd, fname + '.txt')
@@ -255,16 +336,20 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('cmd', choices=['list', 'map']); ap.add_argument('project')
     ap.add_argument('--name'); ap.add_argument('--channels', default='')
+    ap.add_argument('--ports', default='', help='"Plugin 003=2,Kit-Foo=all" (default: port 1 = HAPAX MIDI 1)')
     ap.add_argument('--drum-channel', type=int, default=10)
     ap.add_argument('--no-defs', action='store_true')
     a = ap.parse_args()
     ov = parse_overrides(a.channels)
+    pv = {k.strip(): v.strip() for k, _, v in (p.rpartition('=') for p in filter(None, (s.strip() for s in a.ports.split(','))))}
     if a.cmd == 'list':
-        for r in analyze(a.project, ov, a.drum_channel)['tracks']:
-            print(f'{r["n"]:>3} {r["track"][:28]:28} {r["type"]:9} {str(r["plugin"] or "")[:16]:16} ch {r["channel"]!s:>4} '
-                  f'{"" if not r["plugin"] else ("pre-learn OK" if r["trusted"] else "learn by hand")}')
+        for r in analyze(a.project, ov, a.drum_channel, ports=pv)['tracks']:
+            print(f'{r["n"]:>3} {r["track"][:28]:28} {r["type"]:9} {str(r["plugin"] or "")[:16]:16} '
+                  f'port {port_label(r["port"]):>3} ch {r["channel"]!s:>4} '
+                  f'{"" if not r["plugin"] else ("pre-learn OK" if r["trusted"] else "learn by hand")}'
+                  f'{"  ! " + r["clash"] if r["clash"] else ""}')
     else:
         try:
-            map_project(a.project, a.name, ov, a.drum_channel, write_defs=not a.no_defs)
+            map_project(a.project, a.name, ov, a.drum_channel, write_defs=not a.no_defs, ports=pv)
         except FileExistsError as e:
             sys.exit(str(e))
