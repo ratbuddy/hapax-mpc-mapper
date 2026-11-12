@@ -10,3 +10,6 @@ plugin_maps.json
 SD-Card/
 Projects/
 Reports/
+# personal: last folders used, quarantine plans/manifests (absolute paths to your MPC's files)
+app_state.json
+*.csv
