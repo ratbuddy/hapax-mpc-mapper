@@ -116,4 +116,8 @@ Generated files never go into this repo. The data folder is resolved in this ord
 | Item | State | What it would take |
 |------|-------|--------------------|
 | Drum and keygroup pots beyond Vol/Pan | Not built. Those parameters are adjusted on the MPC directly | Kit-wide pots, one learn entry targeting all pads, like the kit's own Q-Link macros. Known per-pad parameter IDs (instrumentIndex = pad): Filter Cutoff 514, Pan 517, Level 518, Decay 520, Send 1 522, Send 2 523. Missing: Tuning, Filter Reso, Filter Env, Attack, Release. First check that loading a different kit doesn't rename the track and break its name-based learns |
-| Knob page B (8 more knobs via a second Hapax track on the same channel) | Built and tested, then shelved: it costs a Hapax track per plugin | `git stash list`, "knob page B" |
+| Knob page B (8 more knobs via a second Hapax track on the same channel) | Built and tested, then shelved: it costs a Hapax track per plugin | A second Hapax definition per plugin, set to the same channel. The parked code isn't in this repo |
+
+## License
+
+MIT, see [LICENSE](LICENSE). Not affiliated with Akai/inMusic or Squarp. MPC and Hapax are their trademarks.
