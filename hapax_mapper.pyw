@@ -448,6 +448,8 @@ class App(tk.Tk):
             return
         name = hi.hapax_label(self.outname.get()) if self.outname.get().strip() else None
         if not messagebox.askyesno('Hapax Mapper', f'Write a NEW project "{name}" next to\n{self.analysis["path"]}\n\n'
+                                   'It adds the Hapax routing and the MIDI Learn entries that tie each CC to its '
+                                   'parameter, and makes the Hapax files for Copy to SD card.\n\n'
                                    'Your original project is not changed. Continue?'):
             return
         self.save_choices(quiet=True)
@@ -469,7 +471,9 @@ class App(tk.Tk):
 
     def copy_sd(self):
         if not self.last_defs:
-            messagebox.showinfo('Hapax Mapper', 'Map a project first - this copies that project\'s Hapax files.'); return
+            messagebox.showinfo('Hapax Mapper', 'Click MAP → MPC first.\n\nIt makes the Hapax files, plus a new MPC project '
+                                'that knows which CC moves which parameter. This button then copies those Hapax files '
+                                'to the card.'); return
         d = filedialog.askdirectory(initialdir=self.sd[0] if self.sd else os.path.expanduser('~'),
                                     title='Choose the Hapax SD card (its root or its HAPAX folder)')
         if not d:
