@@ -90,12 +90,21 @@ Generated files never go into this repo. The data folder is resolved in this ord
 | Pots → plugin parameter (Jura, CC 20) | ✓ |
 | CC 7 → track volume (Jura) | ✓ |
 | Input port `HAPAX MIDI 1` + Merge; port survives a replug | ✓ |
+| Mapped project: notes on `HAPAX MIDI 1` + the track's own channel (Stage Piano, ch 7); CC 7 → its Mixer fader | ✓ |
 | CC 10 → pan | not yet tested |
 | Full 16-track mapped project loading all entries (~320) | not yet tested (104 tested) |
 | Plugin pots while a *different* track is focused on the MPC | not yet tested (forum: plugin-target learns work out of focus, Q-Link learns don't; these are plugin-target learns) |
 | Drum track + plugin playing the same note numbers on different channels | low risk: the forum's long-standing MPC note-off bug is reported fixed in MPC 3.6 (this setup runs 3.10). If notes still drop, move the kit's pads low or set key ranges |
 
 `HAPAX MIDI 1` input-port settings on the MPC: **Track** and **Control** on, **Global** off. "Enable Mapping" (MIDI Learn) is an MPC setting, not saved in projects.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| MIDI Monitor shows the Hapax's notes and CCs on `HAPAX MIDI 1`, but no track plays, no fader moves, and `HAPAX MIDI 1` is missing from a track's INPUT PORT list | `HAPAX MIDI 1` has Track/Control off. The Monitor ignores those settings; tracks and MIDI Learn don't. They are MPC-wide preferences, not stored in projects | Preferences → MIDI/Sync → Input Ports → `HAPAX MIDI 1`: Track on, Control on, Global off. Then re-pick `HAPAX MIDI 1` on any track you changed |
+| CC 7 doesn't move the plugin's own volume knob | CC 7 targets the track's Mixer fader, not the plugin | Watch the Mixer |
+| Copy to SD card says to map first | It copies the files MAP → MPC makes | Click MAP → MPC first |
 
 ## Not done (by choice)
 
