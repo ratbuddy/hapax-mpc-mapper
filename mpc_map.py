@@ -138,6 +138,7 @@ def map_project(path, name=None, overrides=None, drum_channel=10, selections=Non
                 note.append('unknown plugin, few matches - names only, nothing learned'); trusted = False
             if trusted:
                 for x in rows:
+                    x['value'] = vals[x['index']]          # also the Hapax pot's starting point
                     new.append(entry(t['name'], ch, x['cc'], PLUGIN_PARAM_BASE + x['index'], PLUGIN_INSTRUMENT, x['name'], vals[x['index']]))
                 learned = True
                 note.append(f'{len(rows)} parameters learned')
@@ -201,6 +202,8 @@ def write_hapax_defs(name, hapax, project_data, log=print):
         fname = mh.hx(f'{prefix} CH{ch:02d} {label}', 60)
         path = os.path.join(out_root, fname + '.txt')
         vol_pan = [(7, 'Track Vol'), (10, 'Track Pan')]
+        mix = t.get('program', {}).get('mixable', {})
+        vol_pan_pots = [(1, 7, mh.cc_value(mix.get('volume'))), (2, 10, mh.cc_value(mix.get('pan')))]
         header = [f'Project {name} - MPC track {n} ({t["name"]})', f'port USBD ch {ch}']
         if typ == 0:
             prog = mh.read_track_data(t)
@@ -214,12 +217,12 @@ def write_hapax_defs(name, hapax, project_data, log=print):
                 lane_names.append((s['note'], nm if used[nm] == 1 else mh.hx(f'{nm[:14]} {used[nm]}', 16)))
             mh.write_def(path, label, 'DRUM', 'USBD', ch, lane_names,
                          [f'Project {name}', f'MPC track {n} {t["name"]}', 'Notes from this project s own pad map',
-                          'Pots 1-2 track Volume Pan'], header, ccs=vol_pan, pots=[(1, 7), (2, 10)])
+                          'Pots 1-2 track Volume Pan'], header, ccs=vol_pan, pots=vol_pan_pots)
             sheet.append(f'| {ch} | {n} {t["name"]} (drums) | Volume, Pan | - | yes |')
         else:
             pots = sorted((x for x in rows if x.get('pot')), key=lambda x: x['pot'])
             ccs = [(x['cc'], x['label']) for x in sorted(rows, key=lambda x: x['cc'])] + vol_pan
-            assign = [(x['pot'], x['cc']) for x in pots] or [(1, 7), (2, 10)]
+            assign = [(x['pot'], x['cc'], mh.cc_value(x.get('value'))) for x in pots] or vol_pan_pots
             comment = [f'Project {name}', f'MPC track {n} {t["name"]}'] + \
                       [f'Pot {x["pot"]} CC{x["cc"]} {x["label"]}' for x in pots] + \
                       [f'{len(rows)} params mapped - pre-learned' if learned else

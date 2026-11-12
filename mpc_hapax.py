@@ -406,13 +406,21 @@ def assign_lanes(sounds):
     return pages
 
 # --- definition writer + validator -------------------------------------------------------------
+def cc_value(v):
+    """A 0..1 value as the MPC saves it (plugin knob, mixer fader) -> the 0..127 CC that puts it there."""
+    return None if v is None else max(0, min(127, round(float(v) * 127)))
+
 def control_sections(ccs, pots, lanes=False):
-    """ccs: [(cc, name)]  pots: [(pot 1-8, cc)] -> [CC], [ASSIGN] and optionally empty [AUTOMATION] lanes."""
+    """ccs: [(cc, name)]  pots: [(pot 1-8, cc)] or [(pot, cc, start 0-127 or None)] -> [CC], [ASSIGN] and
+    optionally empty [AUTOMATION] lanes. A start value becomes the pot's DEFAULT, so the Hapax encoder starts
+    where the MPC knob already is instead of at 0. [CC] defaults are left out on purpose: a lane default is sent
+    on every pattern change and would undo knob moves made on the MPC."""
     if not ccs:
         return []
     out = ['[CC]'] + [f'{cc} {hx(name, 24) or "CC" + str(cc)}' for cc, name in ccs] + ['[/CC]', '']
     if pots:
-        out += ['[ASSIGN]'] + [f'{pot} CC:{cc}' for pot, cc in pots] + ['[/ASSIGN]', '']
+        out += ['[ASSIGN]'] + [f'{p[0]} CC:{p[1]}' + (f' DEFAULT={p[2]}' if len(p) > 2 and p[2] is not None else '')
+                               for p in pots] + ['[/ASSIGN]', '']
     if lanes:
         out += ['[AUTOMATION]'] + [f'CC:{cc}' for cc, _ in ccs] + ['[/AUTOMATION]', '']
     return out
@@ -469,8 +477,9 @@ def validate(path):
                 errs.append(f'L{n} bad CC line: {line!r}')
             continue
         if sect == 'ASSIGN':
-            mm = re.fullmatch(r'([1-8]) (CC:(\d+)|PB|AT|CV:[1-4]|NULL)( DEFAULT=\d+)?', line)
-            if not mm or (mm.group(3) and not 0 <= int(mm.group(3)) <= 119):
+            mm = re.fullmatch(r'([1-8]) (CC:(\d+)|PB|AT|CV:[1-4]|NULL)( DEFAULT=(\d+))?', line)
+            if not mm or (mm.group(3) and not 0 <= int(mm.group(3)) <= 119) or \
+                    (mm.group(3) and mm.group(5) and not 0 <= int(mm.group(5)) <= 127):
                 errs.append(f'L{n} bad ASSIGN line: {line!r}')
             continue
         if sect == 'AUTOMATION':

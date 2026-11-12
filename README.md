@@ -32,6 +32,7 @@ Parameter choices are saved per plugin. The next project that uses the same plug
 | MIDI monitor | Merge |
 | CC 7 / CC 10 | track volume / pan, on every mapped track |
 | Plugin parameters | up to 32 per plugin, as MIDI Learn entries holding each knob's current value (loading the project changes nothing) |
+| Hapax pot start values | each pot's `DEFAULT=` is that knob's (or fader's) value at mapping time, so the first turn doesn't jump the sound. ✎ by-hand plugins start at 0. Change a preset on the MPC later and the pots still start at the old values |
 | Your own MIDI Learn entries | kept, unless one clashes on the same channel+CC or the same target |
 | Drum tracks | Hapax drum lanes are named from the kit's pads |
 
