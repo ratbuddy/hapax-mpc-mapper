@@ -8,8 +8,10 @@ Where things live. Nothing here depends on drive letters.
               this folder, then %USERPROFILE%\\Documents\\Hapax-MPC-Mappings.
   mpc_drives() the MPC's drives found by volume NAME ("MPC Content", "MPC User"), whatever letters Windows
               gave them. The MPC must be in Controller Mode and connected by USB.
+  shown()     a path or message for the screen, with the Windows user folder (it contains the user name)
+              written as ~, so screenshots and videos don't show it.
 """
-import json, os, string
+import json, os, re, string
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESOURCES = os.path.join(CODE_DIR, 'resources')
@@ -51,6 +53,40 @@ def mpc_projects_dir():
     user = mpc_drives().get('MPC User')
     p = os.path.join(user, 'MPC Documents', 'Projects') if user else None
     return p if p and os.path.isdir(p) else None
+
+HOME = os.path.expanduser('~')
+_HOME_RE = re.compile(r'[\\/]'.join(re.escape(p) for p in re.split(r'[\\/]', HOME.rstrip('\\/'))) + r'(?![\w.-])',
+                      re.I)
+
+def shown(text):
+    """Text for the screen: C:\\Users\\<name>\\... (either slash, any case) becomes ~\\... .
+    os.path.expanduser turns it back into the real path."""
+    return _HOME_RE.sub('~', text) if isinstance(text, str) and HOME not in ('~', '') else text
+
+def drive_root():
+    return (os.environ.get('SystemDrive') or 'C:') + '\\'
+
+def first_dir(*candidates):
+    """The first candidate folder that exists, else the system drive root (never a default inside the user folder)."""
+    return next((c for c in candidates if c and os.path.isdir(c)), drive_root())
+
+def _state_file():
+    return os.path.join(data_dir(), 'app_state.json')
+
+def load_state():
+    """Small per-user app memory (last folders used), kept in the data folder."""
+    try:
+        return json.load(open(_state_file(), encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+def save_state(**kw):
+    st = load_state(); st.update(kw)
+    try:
+        with open(_state_file(), 'w', encoding='utf-8') as f:
+            json.dump(st, f, indent=1)
+    except OSError:
+        pass
 
 def removable_drives():
     out = []

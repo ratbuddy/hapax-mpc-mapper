@@ -57,7 +57,7 @@ class App(tk.Tk):
         self.after(150, self._drain)
         self.after(300, self._poll_devices)
         if initial:
-            self.path.set(initial); self.after(200, self.load)
+            self.path.set(paths.shown(os.path.abspath(initial))); self.after(200, self.load)
 
     def px(self, v):
         return int(v * self.s)
@@ -231,7 +231,7 @@ class App(tk.Tk):
 
     # ---------- plumbing ----------
     def log(self, msg):
-        self.q.put(msg)
+        self.q.put(paths.shown(msg))                      # the user folder holds the Windows user name: show ~
 
     def _drain(self):
         try:
@@ -266,21 +266,27 @@ class App(tk.Tk):
                                style='PillOn.TLabel' if sd else 'Pill.TLabel')
 
     # ---------- project ----------
+    def open_start_dir(self):
+        """Where Open… starts: the folder used last time, else the MPC's Projects folder, else the drive root.
+        Never a default inside the Windows user folder, whose name would show in screenshots."""
+        return paths.first_dir(paths.load_state().get('open_dir'), paths.mpc_projects_dir())
+
     def browse(self):
-        start = paths.mpc_projects_dir() or os.path.join(paths.data_dir(), 'Reports')
-        p = filedialog.askopenfilename(initialdir=start, filetypes=[('MPC project', '*.xpj')])
+        p = filedialog.askopenfilename(initialdir=self.open_start_dir(), filetypes=[('MPC project', '*.xpj')])
         if p:
+            p = os.path.normpath(p)
+            paths.save_state(open_dir=os.path.dirname(p))
             self.overrides.clear(); self.ports.clear()          # port/channel picks belong to the previous project
-            self.path.set(os.path.normpath(p)); self.outname.set(''); self.load()
+            self.path.set(paths.shown(p)); self.outname.set(''); self.load()
 
     def load(self):
-        p = self.path.get().strip().strip('"')
+        p = os.path.expanduser(self.path.get().strip().strip('"'))   # the box shows ~ for the user folder
         if not os.path.isfile(p):
-            messagebox.showerror('Hapax Mapper', f'Not a file:\n{p}'); return
+            messagebox.showerror('Hapax Mapper', f'Not a file:\n{paths.shown(p)}'); return
         try:
             self.analysis = mm.analyze(p, self.overrides, ports=self.ports)
         except Exception as e:
-            messagebox.showerror('Hapax Mapper', f'Could not read the project:\n{e}'); return
+            messagebox.showerror('Hapax Mapper', paths.shown(f'Could not read the project:\n{e}')); return
         for t in self.analysis['tracks']:
             if t['plugin'] and t['plugin'] not in self.selections:
                 self.selections[t['plugin']] = [dict(r) for r in t['selection']]
@@ -482,7 +488,7 @@ class App(tk.Tk):
         if not self.analysis:
             return
         name = hi.hapax_label(self.outname.get()) if self.outname.get().strip() else None
-        if not messagebox.askyesno('Hapax Mapper', f'Write a NEW project "{name}" next to\n{self.analysis["path"]}\n\n'
+        if not messagebox.askyesno('Hapax Mapper', f'Write a NEW project "{name}" next to\n{paths.shown(self.analysis["path"])}\n\n'
                                    'It adds the Hapax routing and the MIDI Learn entries that tie each CC to its '
                                    'parameter, and makes the Hapax files for Copy to SD card.\n\n'
                                    'Your original project is not changed. Continue?'):
@@ -510,13 +516,15 @@ class App(tk.Tk):
             messagebox.showinfo('Hapax Mapper', 'Click MAP → MPC first.\n\nIt makes the Hapax files, plus a new MPC project '
                                 'that knows which CC moves which parameter. This button then copies those Hapax files '
                                 'to the card.'); return
-        d = filedialog.askdirectory(initialdir=self.sd[0] if self.sd else os.path.expanduser('~'),
-                                    title='Choose the Hapax SD card (its root or its HAPAX folder)')
+        start = self.sd[0] if self.sd else paths.first_dir(paths.load_state().get('sd_dir'))   # card, last folder, drive root
+        d = filedialog.askdirectory(initialdir=start, title='Choose the Hapax SD card (its root or its HAPAX folder)')
         if not d:
             return
-        dest = d if os.path.basename(os.path.normpath(d)).upper() == 'HAPAX' else os.path.join(d, 'HAPAX')
+        d = os.path.normpath(d)
+        paths.save_state(sd_dir=d)
+        dest = d if os.path.basename(d).upper() == 'HAPAX' else os.path.join(d, 'HAPAX')
         exist = [f for f in self.last_defs if os.path.exists(os.path.join(dest, os.path.basename(f)))]
-        msg = f'Copy {len(self.last_defs)} files to\n{dest}?'
+        msg = f'Copy {len(self.last_defs)} files to\n{paths.shown(dest)}?'
         if exist:
             msg += f'\n\n{len(exist)} files with the same names are already there and will be replaced.'
         if not messagebox.askyesno('Hapax Mapper', msg):
